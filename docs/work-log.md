@@ -146,11 +146,11 @@ export function createSSEConnection(onStats: (stats: QuestionStats) => void): Ev
 ### 📋 다음 할 일
 
 - [x] Supabase 프로젝트 생성 + schema.sql 실행
-- [ ] 백엔드 `.env` 파일 작성 (variables/ 폴더)
-- [ ] 프론트엔드 `.env.local` 파일 작성
-- [ ] 로컬 dev 서버 실행 테스트 (`backend: npm run dev`, `frontend: npm run dev`)
-- [ ] Render 배포 (backend)
-- [ ] Vercel 배포 (frontend)
+- [x] 백엔드 `.env` 파일 작성 (variables/ 폴더)
+- [x] 프론트엔드 `.env.local` 파일 작성
+- [x] 로컬 dev 서버 실행 테스트
+- [x] Render 배포 (backend)
+- [x] Vercel 배포 (frontend)
 - [ ] UptimeRobot으로 슬립 방지 설정
 
 ---
@@ -185,3 +185,94 @@ export function createSSEConnection(onStats: (stats: QuestionStats) => void): Ev
 3. **Next.js 16의 변경사항**: `params`가 Promise로 변경. `useSearchParams`를 Suspense 없이 쓰면 빌드 에러.
 
 4. **Render 무료 티어의 현실**: 15분 비활동 시 슬립 → UptimeRobot ping으로 우회. 개인 프로젝트에는 충분.
+
+---
+
+## 세션 3 — 환경변수 세팅 · 로컬 테스트 · 배포
+
+### 🔑 환경변수 세팅
+
+`variables/supabase.md`의 키를 그대로 주입해 두 파일 생성:
+
+- `backend/.env` — PORT, SUPABASE_URL, SUPABASE_SERVICE_KEY, FRONTEND_URL
+- `frontend/.env.local` — NEXT_PUBLIC_API_URL
+
+두 파일 모두 각 폴더 `.gitignore`에 포함 확인 완료.
+
+---
+
+### 🐛 버그 2개 발견 및 수정
+
+**버그 1 — CORS 포트 충돌**
+
+- 원인: 다른 프로젝트(world-flag-quiz)가 3000 포트를 점유하고 있어 mbti-balance 프론트가 3002에서 기동
+- `backend/.env`의 `FRONTEND_URL=http://localhost:3000`이 실제와 불일치 → `Failed to fetch`
+- 수정: `allowedOrigins` 배열에 3000~3003 전체 허용, origin이 배열 중 하나로 시작하면 통과
+
+```typescript
+// 수정 전
+origin: process.env.FRONTEND_URL || 'http://localhost:3000'
+
+// 수정 후
+const allowedOrigins = [process.env.FRONTEND_URL, 'http://localhost:3000', ..., 'http://localhost:3003']
+origin: (origin, callback) => {
+  if (!origin || allowedOrigins.some((o) => origin.startsWith(o))) callback(null, true)
+  else callback(new Error(`CORS 차단: ${origin}`))
+}
+```
+
+**버그 2 — SSE stats 업데이트 안 됨**
+
+- 원인: SSE 콜백의 조건 `prev?.question_id === newStats.question_id`
+  - `prev`가 `null`이면 → `undefined === question_id` → `false` → stats가 영원히 null
+- 수정: 조건 제거, `setStats(newStats)`로 단순화
+  - UI 단에서 이미 `stats.question_id === question.id`로 필터링하므로 콜백에서 조건 불필요
+
+---
+
+### 🚀 배포
+
+**GitHub 레포 생성 중 서브모듈 이슈**
+
+`create-next-app`이 `frontend/` 안에 `.git` 폴더를 자동 생성 → 부모 레포에서 서브모듈(160000 mode)로 인식됨.
+
+해결:
+```bash
+rm -rf frontend/.git
+git rm --cached frontend
+git add frontend/
+```
+
+**Render API 자동화**
+
+대시보드 클릭 없이 API로 전부 처리:
+```
+GET  /v1/owners                → ownerId 확보
+POST /v1/services              → 웹 서비스 생성 (rootDir: backend)
+PUT  /v1/services/:id/env-vars → 환경변수 주입
+POST /v1/services/:id/deploys  → 재배포 트리거
+```
+
+**Vercel 배포 중 TypeScript 빌드 에러**
+
+`ResultClient.tsx`에서 `mbti`가 `null`일 수 있음에도 `MBTI_EMOJI[mbti]` 접근 → early return 이후 변수로 분리해 해결.
+
+**최종 배포 URL:**
+
+| | URL |
+|--|--|
+| 프론트엔드 | https://frontend-rouge-kappa-81.vercel.app |
+| 백엔드 | https://mbti-balance-backend.onrender.com |
+| GitHub | https://github.com/rickykimjongwook/mbti-balance |
+
+---
+
+### 🤔 배운 것 / 의사결정
+
+1. **Render API로 완전 자동화 가능**: `rnd_` API 키 하나면 서비스 생성부터 배포까지 Claude Code가 처리. 대시보드에서 클릭할 일이 없어진다.
+
+2. **Supabase MCP도 자동화**: `claude mcp add --transport http supabase` 한 줄 설정 후, 다음 세션에서 프로젝트 생성 → SQL 실행 → 시드 삽입까지 대화로 완료.
+
+3. **create-next-app의 git init 주의**: 부모 레포가 있는 상태에서 create-next-app 실행하면 내부에 `.git` 생성 → 서브모듈 문제. 이후 프로젝트에서는 `--no-git` 플래그 사용 또는 설치 후 `.git` 즉시 제거.
+
+4. **분리 아키텍처의 디버깅 포인트**: 모놀리스에서 없던 이슈들 — CORS, 포트 충돌, 환경변수 2벌 관리. 각각 한 번씩 겪어봤으니 다음엔 선제 대응 가능.

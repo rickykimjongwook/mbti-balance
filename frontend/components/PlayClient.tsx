@@ -16,6 +16,7 @@ export default function PlayClient() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [userChoice, setUserChoice] = useState<'A' | 'B' | null>(null)
   const [stats, setStats] = useState<QuestionStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
   const [choices, setChoices] = useState<UserChoice[]>([])
   const [loading, setLoading] = useState(true)
   const esRef = useRef<EventSource | null>(null)
@@ -34,6 +35,7 @@ export default function PlayClient() {
     // SSE 연결
     esRef.current = createSSEConnection((newStats) => {
       setStats(newStats)
+      setStatsLoading(false)
     })
 
     return () => {
@@ -46,6 +48,7 @@ export default function PlayClient() {
     const question = questions[currentIndex]
 
     setUserChoice(choice)
+    setStatsLoading(true)
     setChoices((prev) => [...prev, { question_id: question.id, choice }])
 
     await submitVote({ question_id: question.id, mbti, choice })
@@ -61,6 +64,7 @@ export default function PlayClient() {
     setCurrentIndex((i) => i + 1)
     setUserChoice(null)
     setStats(null)
+    setStatsLoading(false)
   }
 
   if (!mbti) return null
@@ -129,9 +133,20 @@ export default function PlayClient() {
       </div>
 
       {/* 실시간 통계 */}
-      {userChoice && stats && stats.question_id === question.id && (
-        <div className="mb-6 animate-fade-in">
-          <StatsBar stats={stats} myMbti={mbti} myChoice={userChoice} />
+      {userChoice && (
+        <div className="mb-6">
+          {statsLoading ? (
+            <div className="bg-gray-800/60 rounded-2xl p-5 flex items-center justify-center gap-3 text-gray-400">
+              <span className="flex gap-1">
+                <span className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:0ms]" />
+                <span className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:150ms]" />
+                <span className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:300ms]" />
+              </span>
+              <span className="text-sm">결과 집계 중...</span>
+            </div>
+          ) : stats && stats.question_id === question.id ? (
+            <StatsBar stats={stats} myMbti={mbti} myChoice={userChoice} />
+          ) : null}
         </div>
       )}
 
@@ -139,7 +154,10 @@ export default function PlayClient() {
       {userChoice && (
         <button
           onClick={handleNext}
-          className="w-full py-4 rounded-2xl font-bold text-lg bg-violet-600 hover:bg-violet-500 transition-all animate-fade-in"
+          disabled={statsLoading}
+          className="w-full py-4 rounded-2xl font-bold text-lg transition-all
+            bg-violet-600 hover:bg-violet-500
+            disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
         >
           {currentIndex + 1 >= questions.length ? '결과 보기 🎉' : '다음 질문 →'}
         </button>
