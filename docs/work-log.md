@@ -276,3 +276,52 @@ POST /v1/services/:id/deploys  → 재배포 트리거
 3. **create-next-app의 git init 주의**: 부모 레포가 있는 상태에서 create-next-app 실행하면 내부에 `.git` 생성 → 서브모듈 문제. 이후 프로젝트에서는 `--no-git` 플래그 사용 또는 설치 후 `.git` 즉시 제거.
 
 4. **분리 아키텍처의 디버깅 포인트**: 모놀리스에서 없던 이슈들 — CORS, 포트 충돌, 환경변수 2벌 관리. 각각 한 번씩 겪어봤으니 다음엔 선제 대응 가능.
+
+---
+
+## 세션 4 — UX 개선 · Vercel GitHub 연동
+
+### ✨ SSE 로딩 인디케이터 + 버튼 비활성화
+
+**문제**: 선택 후 SSE 결과가 뜨기까지 약 1초 지연 → 유저가 결과를 못 보고 다음 질문으로 넘어감
+
+**해결**: `statsLoading` 상태 추가
+
+- 선택 시 `statsLoading = true` → SSE 수신 시 `false`
+- 로딩 중: 바운스 점 3개 애니메이션 + "결과 집계 중..." 표시
+- 로딩 중: "다음 질문" 버튼 `disabled` (회색 처리)
+- SSE 수신 완료 후 버튼 활성화
+
+```typescript
+// handleChoice
+setStatsLoading(true)
+
+// SSE 콜백
+esRef.current = createSSEConnection((newStats) => {
+  setStats(newStats)
+  setStatsLoading(false)  // ← 버튼 활성화
+})
+```
+
+---
+
+### 🔗 Vercel GitHub 연동
+
+CLI로 배포(`npx vercel --prod`)하면 GitHub 연동이 없는 상태로 배포됨 → push 시 자동 배포 안 됨.
+
+Vercel API로 해결:
+```
+GET  /v1/integrations/git-namespaces  → GitHub installationId 확인
+POST /v9/projects/:id/link            → GitHub 레포 연결
+PATCH /v9/projects/:id               → 프로젝트명 변경(frontend → mbti-balance), rootDirectory: frontend 설정
+```
+
+이후 `master` 브랜치 push → Vercel 자동 배포 트리거.
+
+---
+
+### 🤔 배운 것 / 의사결정
+
+1. **CLI 배포 vs GitHub 연동 배포**: `npx vercel --prod`는 수동 배포. GitHub 자동 배포는 별도 연동 필요. 다음 프로젝트부터는 초기 설정 시 API로 연동까지 한 번에.
+
+2. **UX 피드백의 중요성**: SSE 지연 1초는 기술적으로 문제없지만 유저 경험상 치명적. "기다려야 한다"는 시각적 신호(로딩 + 버튼 비활성화)가 필수.
