@@ -43,3 +43,11 @@ app.use('/stream', streamRouter)
 app.listen(PORT, () => {
   console.log(`백엔드 서버 실행 중: http://localhost:${PORT}`)
 })
+
+// 콜드스타트 방지: Render 환경에서 1분마다 자기 자신에게 핑
+if (process.env.RENDER_EXTERNAL_URL) {
+  setInterval(() => {
+    fetch(`${process.env.RENDER_EXTERNAL_URL}/health`)
+      .catch((err) => console.error('핑 실패:', err))
+  }, 60_000)
+}
